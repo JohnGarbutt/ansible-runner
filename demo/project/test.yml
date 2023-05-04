@@ -2,3 +2,8 @@
 - hosts: all
   tasks:
     - debug: msg="Test!"
+    - fail:
+        msg: "testing failed delete"
+      when:
+        - error_on_delete | default(false)
+        - (cluster_state|default("present")) == "absent"
