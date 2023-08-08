@@ -8,4 +8,4 @@
         - error_on_delete | default(false)
         - (cluster_state|default("present")) == "absent"
     - ansible.builtin.command: "ssh test@login-cpu.hpc.cam.ac.uk"
-      stdin: "/dev/null"
+        stdin: "/dev/null"
