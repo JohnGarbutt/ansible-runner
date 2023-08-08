@@ -10,20 +10,21 @@ import codecs
 import collections
 import datetime
 import logging
+import traceback
 
-import six
 import pexpect
 
 import ansible_runner.plugins
+from ansible_runner.output import debug
 
 from .utils import OutputEventFilter, cleanup_artifact_dir, ensure_str, collect_new_events
 from .exceptions import CallbackError, AnsibleRunnerException
-from ansible_runner.output import debug
+
 
 logger = logging.getLogger('ansible-runner')
 
 
-class Runner(object):
+class Runner:
 
     def __init__(self, config, cancel_callback=None, remove_partials=True, event_handler=None,
                  artifacts_handler=None, finished_callback=None, status_handler=None):
@@ -39,6 +40,7 @@ class Runner(object):
         self.status = "unstarted"
         self.rc = None
         self.remove_partials = remove_partials
+        self.last_stdout_update = 0.0
 
         # default runner mode to pexpect
         self.runner_mode = self.config.runner_mode if hasattr(self.config, 'runner_mode') else 'pexpect'
@@ -55,16 +57,16 @@ class Runner(object):
         '''
         self.last_stdout_update = time.time()
         if 'uuid' in event_data:
-            filename = '{}-partial.json'.format(event_data['uuid'])
+            filename = f"{event_data['uuid']}-partial.json"
             partial_filename = os.path.join(self.config.artifact_dir,
                                             'job_events',
                                             filename)
             full_filename = os.path.join(self.config.artifact_dir,
                                          'job_events',
-                                         '{}-{}.json'.format(event_data['counter'],
-                                                             event_data['uuid']))
+                                         f"{event_data['counter']}-{event_data['uuid']}.json"
+                                         )
             try:
-                event_data.update(dict(runner_ident=str(self.config.ident)))
+                event_data.update({'runner_ident': str(self.config.ident)})
                 try:
                     with codecs.open(partial_filename, 'r', encoding='utf-8') as read_file:
                         partial_event_data = json.load(read_file)
@@ -73,10 +75,10 @@ class Runner(object):
                         os.remove(partial_filename)
                 except IOError as e:
                     msg = "Failed to open ansible stdout callback plugin partial data" \
-                          " file {} with error {}".format(partial_filename, str(e))
+                          f" file {partial_filename} with error {str(e)}"
                     debug(msg)
                     if self.config.check_job_event_data:
-                        raise AnsibleRunnerException(msg)
+                        raise AnsibleRunnerException(msg) from e
 
                 # prefer 'created' from partial data, but verbose events set time here
                 if 'created' not in event_data:
@@ -95,7 +97,7 @@ class Runner(object):
                         json.dump(event_data, write_file)
                     os.rename(temporary_filename, full_filename)
             except IOError as e:
-                debug("Failed writing event data: {}".format(e))
+                debug(f"Failed writing event data: {e}")
 
     def status_callback(self, status):
         self.status = status
@@ -112,6 +114,9 @@ class Runner(object):
         Launch the Ansible task configured in self.config (A RunnerConfig object), returns once the
         invocation is complete
         '''
+
+        # pylint: disable=R1732
+
         password_patterns = []
         password_values = []
 
@@ -183,19 +188,19 @@ class Runner(object):
             # But we still rely on env vars to pass secrets
             pexpect_env.update(self.config.env)
             # Write the keys to pass into container to expected file in artifacts dir
-            # option expecting should have already been written in ansible_runner.runner_config
+            # option expecting should have already been written in ansible_runner.config.runner
             env_file_host = os.path.join(self.config.artifact_dir, 'env.list')
             with open(env_file_host, 'w') as f:
                 f.write(
                     '\n'.join(
-                        ["{}={}".format(key, value) for key, value in self.config.env.items()]
+                        [f"{key}={value}" for key, value in self.config.env.items()]
                     )
                 )
         else:
             cwd = self.config.cwd
             pexpect_env = self.config.env
         env = {
-            ensure_str(k): ensure_str(v) if k != 'PATH' and isinstance(v, six.text_type) else v
+            ensure_str(k): ensure_str(v) if k != 'PATH' and isinstance(v, str) else v
             for k, v in pexpect_env.items()
         }
 
@@ -232,37 +237,35 @@ class Runner(object):
                     'stdin': input_fd,
                     'stdout': output_fd,
                     'stderr': error_fd,
-                    'check': True,
                     'universal_newlines': True,
                 }
                 if subprocess_timeout is not None:
                     kwargs.update({'timeout': subprocess_timeout})
 
-                proc_out = run_subprocess(command, **kwargs)
+                proc_out = run_subprocess(command, check=True, **kwargs)
 
                 stdout_response = proc_out.stdout
                 stderr_response = proc_out.stderr
                 self.rc = proc_out.returncode
             except CalledProcessError as exc:
-                logger.debug("{cmd} execution failed, returncode: {rc}, output: {output}, stdout: {stdout}, stderr: {stderr}".format(
-                    cmd=exc.cmd, rc=exc.returncode, output=exc.output, stdout=exc.stdout, stderr=exc.stderr))
+                logger.debug("%s execution failed, returncode: %s, output: %s, stdout: %s, stderr: %s",
+                             exc.cmd, exc.returncode, exc.output, exc.stdout, exc.stderr)
                 self.rc = exc.returncode
                 self.errored = True
                 stdout_response = exc.stdout
                 stderr_response = exc.stderr
             except TimeoutExpired as exc:
-                logger.debug("{cmd} execution timedout, timeout: {timeout}, output: {output}, stdout: {stdout}, stderr: {stderr}".format(
-                    cmd=exc.cmd, timeout=exc.timeout, output=exc.output, stdout=exc.stdout, stderr=exc.stderr))
+                logger.debug("%s execution timedout, timeout: %s, output: %s, stdout: %s, stderr: %s",
+                             exc.cmd, exc.timeout, exc.output, exc.stdout, exc.stderr)
                 self.rc = 254
                 stdout_response = exc.stdout
                 stderr_response = exc.stderr
                 self.timed_out = True
             except Exception as exc:
-                import traceback
                 stderr_response = traceback.format_exc()
                 self.rc = 254
                 self.errored = True
-                logger.debug("received exception: {exc}".format(exc=str(exc)))
+                logger.debug("received exception: %s", exc)
 
             if self.timed_out or self.errored:
                 self.kill_container()
@@ -301,16 +304,13 @@ class Runner(object):
                     close=lambda: None,
                 )
 
-                def _decode(x):
-                    return x.decode('utf-8') if six.PY2 else x
-
                 # create the events directory (the callback plugin won't run, so it
                 # won't get created)
                 events_directory = os.path.join(self.config.artifact_dir, 'job_events')
                 if not os.path.exists(events_directory):
                     os.mkdir(events_directory, 0o700)
-                stdout_handle.write(_decode(str(e)))
-                stdout_handle.write(_decode('\n'))
+                stdout_handle.write(str(e))
+                stdout_handle.write('\n')
 
             job_start = time.time()
             while child.isalive():
@@ -328,17 +328,17 @@ class Runner(object):
                         # TODO: logger.exception('Could not check cancel callback - cancelling immediately')
                         # if isinstance(extra_update_fields, dict):
                         #     extra_update_fields['job_explanation'] = "System error during job execution, check system logs"
-                        raise CallbackError("Exception in Cancel Callback: {}".format(e))
+                        raise CallbackError(f"Exception in Cancel Callback: {e}") from e
                 if self.config.job_timeout and not self.canceled and (time.time() - job_start) > self.config.job_timeout:
                     self.timed_out = True
                     # if isinstance(extra_update_fields, dict):
                     #     extra_update_fields['job_explanation'] = "Job terminated due to timeout"
                 if self.canceled or self.timed_out or self.errored:
                     self.kill_container()
-                    Runner.handle_termination(child.pid, is_cancel=self.canceled)
+                    Runner.handle_termination(child.pid)
                 if self.config.idle_timeout and (time.time() - self.last_stdout_update) > self.config.idle_timeout:
                     self.kill_container()
-                    Runner.handle_termination(child.pid, is_cancel=False)
+                    Runner.handle_termination(child.pid)
                     self.timed_out = True
 
             stdout_handle.close()
@@ -384,13 +384,13 @@ class Runner(object):
             try:
                 self.artifacts_handler(self.config.artifact_dir)
             except Exception as e:
-                raise CallbackError("Exception in Artifact Callback: {}".format(e))
+                raise CallbackError(f"Exception in Artifact Callback: {e}") from e
 
         if self.finished_callback is not None:
             try:
                 self.finished_callback(self)
             except Exception as e:
-                raise CallbackError("Exception in Finished Callback: {}".format(e))
+                raise CallbackError(f"Exception in Finished Callback: {e}") from e
         return self.status, self.rc
 
     @property
@@ -465,7 +465,7 @@ class Runner(object):
             time.sleep(0.05)
             wait_time = datetime.datetime.now() - now
             if wait_time.total_seconds() > 60:
-                raise AnsibleRunnerException("events directory is missing: %s" % event_path)
+                raise AnsibleRunnerException(f"events directory is missing: {event_path}")
 
         while self.status == "running":
             for event, old_evnts in collect_new_events(event_path, old_events):
@@ -490,14 +490,15 @@ class Runner(object):
         if not last_event:
             return None
         last_event = last_event[0]['event_data']
-        return dict(skipped=last_event.get('skipped', {}),
-                    ok=last_event.get('ok', {}),
-                    dark=last_event.get('dark', {}),
-                    failures=last_event.get('failures', {}),
-                    ignored=last_event.get('ignored', {}),
-                    rescued=last_event.get('rescued', {}),
-                    processed=last_event.get('processed', {}),
-                    changed=last_event.get('changed', {}))
+        return {'skipped': last_event.get('skipped', {}),
+                'ok': last_event.get('ok', {}),
+                'dark': last_event.get('dark', {}),
+                'failures': last_event.get('failures', {}),
+                'ignored': last_event.get('ignored', {}),
+                'rescued': last_event.get('rescued', {}),
+                'processed': last_event.get('processed', {}),
+                'changed': last_event.get('changed', {})
+                }
 
     def host_events(self, host):
         '''
@@ -515,22 +516,21 @@ class Runner(object):
         if container_name:
             container_cli = self.config.process_isolation_executable
             cmd = [container_cli, 'kill', container_name]
-            proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
-            _, stderr = proc.communicate()
-            if proc.returncode:
-                logger.info('Error from {} kill {} command:\n{}'.format(container_cli, container_name, stderr))
-            else:
-                logger.info("Killed container {}".format(container_name))
+            with Popen(cmd, stdout=PIPE, stderr=PIPE) as proc:
+                _, stderr = proc.communicate()
+                if proc.returncode:
+                    logger.info("Error from %s kill %s command:\n%s",
+                                container_cli, container_name, stderr)
+                else:
+                    logger.info("Killed container %s", container_name)
 
     @classmethod
-    def handle_termination(cls, pid, pidfile=None, is_cancel=True):
+    def handle_termination(cls, pid, pidfile=None):
         '''
         Internal method to terminate a subprocess spawned by ``pexpect`` representing an invocation of runner.
 
         :param pid:       the process id of the running the job.
         :param pidfile:   the daemon's PID file
-        :param is_cancel: flag showing whether this termination is caused by
-                          instance's cancel_flag.
         '''
 
         try:

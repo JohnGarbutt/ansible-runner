@@ -1,3 +1,6 @@
+# pylint: disable=R0914
+
+import io
 import time
 import tempfile
 import zipfile
@@ -5,12 +8,12 @@ import os
 import json
 import sys
 import stat
-
-from .base64io import Base64IO
 from pathlib import Path
 
+from .base64io import Base64IO
 
-def stream_dir(source_directory, stream):
+
+def stream_dir(source_directory: str, stream: io.FileIO) -> None:
     with tempfile.NamedTemporaryFile() as tmp:
         with zipfile.ZipFile(
             tmp.name, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True, strict_timestamps=False
@@ -57,7 +60,7 @@ def stream_dir(source_directory, stream):
                     encoded_target.write(line)
 
 
-def unstream_dir(stream, length, target_directory):
+def unstream_dir(stream: io.FileIO, length: int, target_directory: str) -> None:
     # NOTE: caller needs to process exceptions
     with tempfile.NamedTemporaryFile() as tmp:
         with open(tmp.name, "wb") as target:
@@ -65,8 +68,7 @@ def unstream_dir(stream, length, target_directory):
                 remaining = length
                 chunk_size = 1024 * 1000  # 1 MB
                 while remaining != 0:
-                    if chunk_size >= remaining:
-                        chunk_size = remaining
+                    chunk_size = min(chunk_size, remaining)
 
                     data = source.read(chunk_size)
                     target.write(data)

@@ -21,13 +21,12 @@ import json
 import codecs
 
 from yaml import safe_load, YAMLError
-from six import string_types
 
 from ansible_runner.exceptions import ConfigurationError
 from ansible_runner.output import debug
 
 
-class ArtifactLoader(object):
+class ArtifactLoader:
     '''
     Handles loading and caching file contents from disk
 
@@ -59,7 +58,7 @@ class ArtifactLoader(object):
         try:
             return json.loads(contents)
         except ValueError:
-            pass
+            return None
 
     def _load_yaml(self, contents):
         '''
@@ -76,7 +75,7 @@ class ArtifactLoader(object):
         try:
             return safe_load(contents)
         except YAMLError:
-            pass
+            return None
 
     def get_contents(self, path):
         '''
@@ -95,14 +94,14 @@ class ArtifactLoader(object):
         '''
         try:
             if not os.path.exists(path):
-                raise ConfigurationError('specified path does not exist %s' % path)
+                raise ConfigurationError(f"specified path does not exist {path}")
             with codecs.open(path, encoding='utf-8') as f:
                 data = f.read()
 
             return data
 
         except (IOError, OSError) as exc:
-            raise ConfigurationError('error trying to load file contents: %s' % exc)
+            raise ConfigurationError(f"error trying to load file contents: {exc}") from exc
 
     def abspath(self, path):
         '''
@@ -144,7 +143,7 @@ class ArtifactLoader(object):
             objtype (object): The object type of the file contents.  This
                 is used to type check the deserialized content against the
                 contents loaded from disk.
-                Ignore serializing if objtype is string_types
+                Ignore serializing if objtype is str.
 
         Returns:
             object: The deserialized file contents which could be either a
@@ -154,30 +153,30 @@ class ArtifactLoader(object):
             ConfigurationError:
         '''
         path = self.abspath(path)
-        debug('file path is %s' % path)
+        debug(f"file path is {path}")
 
         if path in self._cache:
             return self._cache[path]
 
         try:
-            debug('cache miss, attempting to load file from disk: %s' % path)
+            debug(f"cache miss, attempting to load file from disk: {path}")
             contents = parsed_data = self.get_contents(path)
             if encoding:
                 parsed_data = contents.encode(encoding)
         except ConfigurationError as exc:
             debug(exc)
             raise
-        except UnicodeEncodeError:
-            raise ConfigurationError('unable to encode file contents')
+        except UnicodeEncodeError as exc:
+            raise ConfigurationError('unable to encode file contents') from exc
 
-        if objtype is not string_types:
+        if objtype is not str:
             for deserializer in (self._load_json, self._load_yaml):
                 parsed_data = deserializer(contents)
                 if parsed_data:
                     break
 
             if objtype and not isinstance(parsed_data, objtype):
-                debug('specified file %s is not of type %s' % (path, objtype))
+                debug(f"specified file {path} is not of type {objtype}")
                 raise ConfigurationError('invalid file serialization type for contents')
 
         self._cache[path] = parsed_data

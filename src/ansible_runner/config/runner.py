@@ -16,16 +16,16 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+# pylint: disable=W0201
+
 import json
 import logging
 import os
 import shlex
 import stat
 import tempfile
-import six
 import shutil
-
-from six import string_types, text_type
 
 from ansible_runner import output
 from ansible_runner.config._base import BaseConfig, BaseExecutionMode
@@ -73,7 +73,7 @@ class RunnerConfig(BaseConfig):
 
         self.runner_mode = "pexpect"
 
-        super(RunnerConfig, self).__init__(private_data_dir, **kwargs)
+        super().__init__(private_data_dir, **kwargs)
 
         self.playbook = playbook
         self.inventory = inventory
@@ -134,8 +134,7 @@ class RunnerConfig(BaseConfig):
         if self.sandboxed and self.directory_isolation_path is not None:
             self.directory_isolation_path = tempfile.mkdtemp(prefix='runner_di_', dir=self.directory_isolation_path)
             if os.path.exists(self.project_dir):
-                output.debug("Copying directory tree from {} to {} for working directory isolation".format(self.project_dir,
-                                                                                                           self.directory_isolation_path))
+                output.debug(f"Copying directory tree from {self.project_dir} to {self.directory_isolation_path} for working directory isolation")
                 shutil.copytree(self.project_dir, self.directory_isolation_path, symlinks=True)
 
         self.prepare_inventory()
@@ -143,12 +142,12 @@ class RunnerConfig(BaseConfig):
 
         if self.execution_mode == ExecutionMode.ANSIBLE_PLAYBOOK and self.playbook is None:
             raise ConfigurationError("Runner playbook required when running ansible-playbook")
-        elif self.execution_mode == ExecutionMode.ANSIBLE and self.module is None:
+        if self.execution_mode == ExecutionMode.ANSIBLE and self.module is None:
             raise ConfigurationError("Runner module required when running ansible")
-        elif self.execution_mode == ExecutionMode.NONE:
+        if self.execution_mode == ExecutionMode.NONE:
             raise ConfigurationError("No executable for runner to run")
 
-        self._handle_command_wrap()
+        self.handle_command_wrap()
 
         debug('env:')
         for k, v in sorted(self.env.items()):
@@ -175,7 +174,7 @@ class RunnerConfig(BaseConfig):
         """
 
         # setup common env settings
-        super(RunnerConfig, self)._prepare_env()
+        super().prepare_env()
 
         self.process_isolation_path = self.settings.get('process_isolation_path', self.process_isolation_path)
         self.process_isolation_hide_paths = self.settings.get('process_isolation_hide_paths', self.process_isolation_hide_paths)
@@ -210,10 +209,7 @@ class RunnerConfig(BaseConfig):
 
     def prepare_command(self):
         try:
-            cmdline_args = self.loader.load_file('args', string_types, encoding=None)
-
-            if six.PY2 and isinstance(cmdline_args, text_type):
-                cmdline_args = cmdline_args.encode('utf-8')
+            cmdline_args = self.loader.load_file('args', str, encoding=None)
             self.command = shlex.split(cmdline_args)
             self.execution_mode = ExecutionMode.RAW
         except ConfigurationError:
@@ -241,10 +237,7 @@ class RunnerConfig(BaseConfig):
             if self.cmdline_args:
                 cmdline_args = self.cmdline_args
             else:
-                cmdline_args = self.loader.load_file('env/cmdline', string_types, encoding=None)
-
-            if six.PY2 and isinstance(cmdline_args, text_type):
-                cmdline_args = cmdline_args.encode('utf-8')
+                cmdline_args = self.loader.load_file('env/cmdline', str, encoding=None)
 
             args = shlex.split(cmdline_args)
             exec_list.extend(args)
@@ -270,35 +263,35 @@ class RunnerConfig(BaseConfig):
                 extravars_path = '/runner/env/extravars'
             else:
                 extravars_path = self.loader.abspath('env/extravars')
-            exec_list.extend(['-e', '@{}'.format(extravars_path)])
+            exec_list.extend(['-e', f'@{extravars_path}'])
 
         if self.extra_vars:
             if isinstance(self.extra_vars, dict) and self.extra_vars:
                 extra_vars_list = []
                 for k in self.extra_vars:
-                    extra_vars_list.append("\"{}\":{}".format(k, json.dumps(self.extra_vars[k])))
+                    extra_vars_list.append(f"\"{k}\":{json.dumps(self.extra_vars[k])}")
 
                 exec_list.extend(
                     [
                         '-e',
-                        '{%s}' % ','.join(extra_vars_list)
+                        f'{{{",".join(extra_vars_list)}}}'
                     ]
                 )
             elif self.loader.isfile(self.extra_vars):
-                exec_list.extend(['-e', '@{}'.format(self.loader.abspath(self.extra_vars))])
+                exec_list.extend(['-e', f'@{self.loader.abspath(self.extra_vars)}'])
 
         if self.verbosity:
             v = 'v' * self.verbosity
-            exec_list.append('-{}'.format(v))
+            exec_list.append(f'-{v}')
 
         if self.tags:
-            exec_list.extend(['--tags', '{}'.format(self.tags)])
+            exec_list.extend(['--tags', self.tags])
 
         if self.skip_tags:
-            exec_list.extend(['--skip-tags', '{}'.format(self.skip_tags)])
+            exec_list.extend(['--skip-tags', self.skip_tags])
 
         if self.forks:
-            exec_list.extend(['--forks', '{}'.format(self.forks)])
+            exec_list.extend(['--forks', str(self.forks)])
 
         # Other parameters
         if self.execution_mode == ExecutionMode.ANSIBLE_PLAYBOOK:
@@ -351,7 +344,7 @@ class RunnerConfig(BaseConfig):
 
         for path in sorted(set(self.process_isolation_hide_paths or [])):
             if not os.path.exists(path):
-                logger.debug('hide path not found: {0}'.format(path))
+                logger.debug('hide path not found: %s', path)
                 continue
             path = os.path.realpath(path)
             if os.path.isdir(path):
@@ -361,7 +354,7 @@ class RunnerConfig(BaseConfig):
                 handle, new_path = tempfile.mkstemp(dir=self.process_isolation_path_actual)
                 os.close(handle)
                 os.chmod(new_path, stat.S_IRUSR | stat.S_IWUSR)
-            new_args.extend(['--bind', '{0}'.format(new_path), '{0}'.format(path)])
+            new_args.extend(['--bind', new_path, path])
 
         if self.private_data_dir:
             show_paths = [self.private_data_dir]
@@ -370,18 +363,18 @@ class RunnerConfig(BaseConfig):
 
         for path in sorted(set(self.process_isolation_ro_paths or [])):
             if not os.path.exists(path):
-                logger.debug('read-only path not found: {0}'.format(path))
+                logger.debug('read-only path not found: %s', path)
                 continue
             path = os.path.realpath(path)
-            new_args.extend(['--ro-bind', '{0}'.format(path), '{0}'.format(path)])
+            new_args.extend(['--ro-bind', path, path])
 
         show_paths.extend(self.process_isolation_show_paths or [])
         for path in sorted(set(show_paths)):
             if not os.path.exists(path):
-                logger.debug('show path not found: {0}'.format(path))
+                logger.debug('show path not found: %s', path)
                 continue
             path = os.path.realpath(path)
-            new_args.extend(['--bind', '{0}'.format(path), '{0}'.format(path)])
+            new_args.extend(['--bind', path, path])
 
         if self.execution_mode == ExecutionMode.ANSIBLE_PLAYBOOK:
             # playbook runs should cwd to the SCM checkout dir
@@ -396,7 +389,7 @@ class RunnerConfig(BaseConfig):
         new_args.extend(args)
         return new_args
 
-    def _handle_command_wrap(self):
+    def handle_command_wrap(self):
         # wrap args for ssh-agent
         if self.ssh_key_data:
             debug('ssh-agent agrs added')

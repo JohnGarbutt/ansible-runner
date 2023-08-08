@@ -1,12 +1,14 @@
+# pylint: disable=W0621
+
 import shutil
 
 from pathlib import Path
 from packaging.version import Version
 
+import pytest
+
 from ansible_runner import defaults
 from ansible_runner.utils.importlib_compat import importlib_metadata
-
-import pytest
 
 
 CONTAINER_RUNTIMES = (
@@ -38,7 +40,8 @@ def is_pre_ansible211():
             return False
     except importlib_metadata.PackageNotFoundError:
         # Must be ansible-base or ansible
-        return True
+        pass
+    return True
 
 
 @pytest.fixture(scope='session')
@@ -55,6 +58,7 @@ def is_pre_ansible212():
             return True
     except importlib_metadata.PackageNotFoundError:
         pass
+    return False
 
 
 @pytest.fixture(scope="session")

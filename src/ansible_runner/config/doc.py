@@ -16,6 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+# pylint: disable=W0201
+
 import logging
 
 from ansible_runner.config._base import BaseConfig, BaseExecutionMode
@@ -47,7 +50,7 @@ class DocConfig(BaseConfig):
         # runner params
         self.runner_mode = runner_mode if runner_mode else 'subprocess'
         if self.runner_mode not in ['pexpect', 'subprocess']:
-            raise ConfigurationError("Invalid runner mode {0}, valid value is either 'pexpect' or 'subprocess'".format(self.runner_mode))
+            raise ConfigurationError(f"Invalid runner mode {self.runner_mode}, valid value is either 'pexpect' or 'subprocess'")
 
         if kwargs.get("process_isolation"):
             self._ansible_doc_exec_path = "ansible-doc"
@@ -55,7 +58,7 @@ class DocConfig(BaseConfig):
             self._ansible_doc_exec_path = get_executable_path("ansible-doc")
 
         self.execution_mode = BaseExecutionMode.ANSIBLE_COMMANDS
-        super(DocConfig, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     _supported_response_formats = ('json', 'human')
 
@@ -63,13 +66,13 @@ class DocConfig(BaseConfig):
                                     snippet=False, playbook_dir=None, module_path=None):
 
         if response_format and response_format not in DocConfig._supported_response_formats:
-            raise ConfigurationError("Invalid response_format {0}, valid value is one of either {1}".format(response_format,
-                                                                                                            ", ".join(DocConfig._supported_response_formats)))
+            raise ConfigurationError(f'Invalid response_format {response_format}, '
+                                     f'valid value is one of either {", ".join(DocConfig._supported_response_formats)}')
 
         if not isinstance(plugin_names, list):
-            raise ConfigurationError("plugin_names should be of type list, instead received {0} of type {1}".format(plugin_names, type(plugin_names)))
+            raise ConfigurationError(f"plugin_names should be of type list, instead received {plugin_names} of type {type(plugin_names)}")
 
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self.cmdline_args = []
 
         if response_format == 'json':
@@ -90,16 +93,16 @@ class DocConfig(BaseConfig):
         self.cmdline_args.extend(plugin_names)
 
         self.command = [self._ansible_doc_exec_path] + self.cmdline_args
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)
 
     def prepare_plugin_list_command(self, list_files=None, response_format=None, plugin_type=None,
                                     playbook_dir=None, module_path=None):
 
         if response_format and response_format not in DocConfig._supported_response_formats:
-            raise ConfigurationError("Invalid response_format {0}, valid value is one of either {1}".format(response_format,
-                                                                                                            ", ".join(DocConfig._supported_response_formats)))
+            raise ConfigurationError(f"Invalid response_format {response_format}, "
+                                     f'valid value is one of either {", ".join(DocConfig._supported_response_formats)}')
 
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self.cmdline_args = []
 
         if list_files:
@@ -120,13 +123,13 @@ class DocConfig(BaseConfig):
             self.cmdline_args.extend(['-M', module_path])
 
         self.command = [self._ansible_doc_exec_path] + self.cmdline_args
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)
 
     def prepare_role_list_command(self, collection_name, playbook_dir):
         """
         ansible-doc -t role -l -j <collection_name>
         """
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self.cmdline_args = ['-t', 'role', '-l', '-j']
         if playbook_dir:
             self.cmdline_args.extend(['--playbook-dir', playbook_dir])
@@ -134,13 +137,13 @@ class DocConfig(BaseConfig):
             self.cmdline_args.append(collection_name)
 
         self.command = [self._ansible_doc_exec_path] + self.cmdline_args
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)
 
     def prepare_role_argspec_command(self, role_name, collection_name, playbook_dir):
         """
         ansible-doc -t role -j <collection_name>.<role_name>
         """
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self.cmdline_args = ['-t', 'role', '-j']
         if playbook_dir:
             self.cmdline_args.extend(['--playbook-dir', playbook_dir])
@@ -149,4 +152,4 @@ class DocConfig(BaseConfig):
         self.cmdline_args.append(role_name)
 
         self.command = [self._ansible_doc_exec_path] + self.cmdline_args
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)

@@ -16,6 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+# pylint: disable=W0201
+
 import logging
 import os
 
@@ -51,14 +54,14 @@ class CommandConfig(BaseConfig):
             raise ConfigurationError("input_fd is applicable only with 'subprocess' runner mode")
 
         if runner_mode and runner_mode not in ['pexpect', 'subprocess']:
-            raise ConfigurationError("Invalid runner mode {0}, valid value is either 'pexpect' or 'subprocess'".format(runner_mode))
+            raise ConfigurationError(f"Invalid runner mode {runner_mode}, valid value is either 'pexpect' or 'subprocess'")
 
         # runner params
         self.runner_mode = runner_mode
 
         self.execution_mode = BaseExecutionMode.NONE
 
-        super(CommandConfig, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     _ANSIBLE_NON_INERACTIVE_CMDS = (
         'ansible-config',
@@ -79,10 +82,10 @@ class CommandConfig(BaseConfig):
         if self.runner_mode is None:
             self._set_runner_mode()
 
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self._prepare_command()
 
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)
 
     def _prepare_command(self):
         """
@@ -104,5 +107,5 @@ class CommandConfig(BaseConfig):
         if self.execution_mode == BaseExecutionMode.GENERIC_COMMANDS \
            and 'python' in self.executable_cmd.split(os.pathsep)[-1] and self.cmdline_args is None:
             raise ConfigurationError("Runner requires python filename for execution")
-        elif self.execution_mode == BaseExecutionMode.NONE:
+        if self.execution_mode == BaseExecutionMode.NONE:
             raise ConfigurationError("No executable for runner to run")

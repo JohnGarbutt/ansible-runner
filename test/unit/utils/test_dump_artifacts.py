@@ -3,7 +3,7 @@ import pytest
 from ansible_runner.utils import dump_artifacts
 
 
-def test_dump_artifacts_private_data_dir_does_not_exists(mocker):
+def test_dump_artifacts_private_data_dir_does_not_exists():
     data_dir = '/not/a/path'
     kwargs = {'private_data_dir': data_dir}
 
@@ -144,7 +144,7 @@ def test_dump_artifacts_inventory_object(mocker):
     kwargs = {'private_data_dir': '/tmp', 'inventory': inv}
     dump_artifacts(kwargs)
 
-    assert mock_dump_artifact.called_once_with(inv_string, '/tmp/inventory', 'hosts.json')
+    mock_dump_artifact.assert_called_once_with(inv_string, '/tmp/inventory', 'hosts.json')
 
 
 def test_dump_artifacts_inventory_string_path(mocker):

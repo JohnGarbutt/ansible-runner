@@ -16,23 +16,21 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+# pylint: disable=W0201
+
 import json
 import logging
 import os
-import pexpect
 import re
 import stat
 import tempfile
 import shutil
-
 from base64 import b64encode
 from uuid import uuid4
-try:
-    from collections.abc import Mapping
-except ImportError:
-    from collections import Mapping
+from collections.abc import Mapping
 
-from six import iteritems, string_types
+import pexpect
 
 from ansible_runner import defaults
 from ansible_runner.output import debug
@@ -51,7 +49,7 @@ from ansible_runner.utils import (
 logger = logging.getLogger('ansible-runner')
 
 
-class BaseExecutionMode():
+class BaseExecutionMode:
     NONE = 0
     # run ansible commands either locally or within EE
     ANSIBLE_COMMANDS = 1
@@ -59,7 +57,7 @@ class BaseExecutionMode():
     GENERIC_COMMANDS = 2
 
 
-class BaseConfig(object):
+class BaseConfig:
 
     def __init__(self,
                  private_data_dir=None, host_cwd=None, envvars=None, passwords=None, settings=None,
@@ -68,6 +66,8 @@ class BaseConfig(object):
                  container_image=None, container_volume_mounts=None, container_options=None, container_workdir=None, container_auth_data=None,
                  ident=None, rotate_artifacts=0, timeout=None, ssh_key=None, quiet=False, json_mode=False,
                  check_job_event_data=False, suppress_env_files=False, keepalive_seconds=None):
+        # pylint: disable=W0613
+
         # common params
         self.host_cwd = host_cwd
         self.envvars = envvars
@@ -116,9 +116,9 @@ class BaseConfig(object):
         if ident is None:
             self.ident = str(uuid4())
         else:
-            self.ident = ident
+            self.ident = str(ident)
 
-        self.artifact_dir = os.path.join(artifact_dir, "{}".format(self.ident))
+        self.artifact_dir = os.path.join(artifact_dir, self.ident)
 
         if not project_dir:
             self.project_dir = os.path.join(self.private_data_dir, 'project')
@@ -145,7 +145,7 @@ class BaseConfig(object):
     def containerized(self):
         return self.process_isolation and self.process_isolation_executable in self._CONTAINER_ENGINES
 
-    def _prepare_env(self, runner_mode='pexpect'):
+    def prepare_env(self, runner_mode='pexpect'):
         """
         Manages reading environment metadata files under ``private_data_dir`` and merging/updating
         with existing values so the :py:class:`ansible_runner.runner.Runner` object can read and use them easily
@@ -158,7 +158,7 @@ class BaseConfig(object):
                 self.settings = self.loader.load_file('env/settings', Mapping)
         except ConfigurationError:
             debug("Not loading settings")
-            self.settings = dict()
+            self.settings = {}
 
         if self.runner_mode == 'pexpect':
             try:
@@ -169,15 +169,15 @@ class BaseConfig(object):
             except ConfigurationError:
                 debug('Not loading passwords')
 
-            self.expect_passwords = dict()
+            self.expect_passwords = {}
             try:
                 if self.passwords:
                     self.expect_passwords = {
                         re.compile(pattern, re.M): password
-                        for pattern, password in iteritems(self.passwords)
+                        for pattern, password in self.passwords.items()
                     }
             except Exception as e:
-                debug('Failed to compile RE from passwords: {}'.format(e))
+                debug(f'Failed to compile RE from passwords: {e}')
 
             self.expect_passwords[pexpect.TIMEOUT] = None
             self.expect_passwords[pexpect.EOF] = None
@@ -210,7 +210,7 @@ class BaseConfig(object):
                 raise ConfigurationError(
                     f'container_image required when specifying process_isolation_executable={self.process_isolation_executable}'
                 )
-            self.container_name = "ansible_runner_{}".format(sanitize_container_name(self.ident))
+            self.container_name = f"ansible_runner_{sanitize_container_name(self.ident)}"
             self.env = {}
 
             if self.process_isolation_executable == 'podman':
@@ -224,7 +224,7 @@ class BaseConfig(object):
                 #    https://issues.redhat.com/browse/AAP-476
                 self.env['ANSIBLE_UNSAFE_WRITES'] = '1'
 
-            artifact_dir = os.path.join("/runner/artifacts", "{}".format(self.ident))
+            artifact_dir = os.path.join("/runner/artifacts", self.ident)
             self.env['AWX_ISOLATED_DATA_DIR'] = artifact_dir
             if self.fact_cache_type == 'jsonfile':
                 self.env['ANSIBLE_CACHE_PLUGIN_CONNECTION'] = os.path.join(artifact_dir, 'fact_cache')
@@ -246,7 +246,7 @@ class BaseConfig(object):
 
         try:
             if self.ssh_key_data is None:
-                self.ssh_key_data = self.loader.load_file('env/ssh_key', string_types)
+                self.ssh_key_data = self.loader.load_file('env/ssh_key', str)
         except ConfigurationError:
             debug("Not loading ssh key")
             self.ssh_key_data = None
@@ -276,7 +276,7 @@ class BaseConfig(object):
                 shutil.rmtree(callback_dir)
             shutil.copytree(get_callback_dir(), callback_dir)
 
-            container_callback_dir = os.path.join("/runner/artifacts", "{}".format(self.ident), "callback")
+            container_callback_dir = os.path.join("/runner/artifacts", self.ident, "callback")
             self.env['ANSIBLE_CALLBACK_PLUGINS'] = ':'.join(filter(None, (self.env.get('ANSIBLE_CALLBACK_PLUGINS'), container_callback_dir)))
         else:
             callback_dir = self.env.get('AWX_LIB_DIRECTORY', os.getenv('AWX_LIB_DIRECTORY'))
@@ -316,7 +316,7 @@ class BaseConfig(object):
         for k, v in sorted(self.env.items()):
             debug(f' {k}: {v}')
 
-    def _handle_command_wrap(self, execution_mode, cmdline_args):
+    def handle_command_wrap(self, execution_mode, cmdline_args):
         if self.ssh_key_data:
             logger.debug('ssh key data added')
             self.command = self.wrap_args_with_ssh_agent(self.command, self.ssh_key_path)
@@ -328,7 +328,7 @@ class BaseConfig(object):
             logger.debug('containerization disabled')
 
         if hasattr(self, 'command') and isinstance(self.command, list):
-            logger.debug(f"command: {' '.join(self.command)}")
+            logger.debug("command: %s", ' '.join(self.command))
 
     def _ensure_path_safe_to_mount(self, path):
         if os.path.isfile(path):
@@ -362,7 +362,7 @@ class BaseConfig(object):
             for arg in _book_keeping_copy[1:]:
                 if arg[0] == '-':
                     continue
-                elif _book_keeping_copy[(_book_keeping_copy.index(arg) - 1)][0] != '-':
+                if _book_keeping_copy[(_book_keeping_copy.index(arg) - 1)][0] != '-':
                     _playbook = arg
                     break
 
@@ -373,7 +373,7 @@ class BaseConfig(object):
     ):
 
         if src_mount_path is None or not os.path.exists(src_mount_path):
-            logger.debug("Source volume mount path does not exit {0}".format(src_mount_path))
+            logger.debug("Source volume mount path does not exist: %s", src_mount_path)
             return
 
         # ensure source is abs
@@ -406,7 +406,7 @@ class BaseConfig(object):
         self._ensure_path_safe_to_mount(dst_dir)
 
         # format the src dest str
-        volume_mount_path = "{}:{}".format(src_dir, dst_dir)
+        volume_mount_path = f"{src_dir}:{dst_dir}"
 
         # add labels as needed
         if labels:
@@ -465,7 +465,7 @@ class BaseConfig(object):
         new_args = [self.process_isolation_executable]
         new_args.extend(['run', '--rm'])
 
-        if self.runner_mode == 'pexpect' or hasattr(self, 'input_fd') and self.input_fd is not None:
+        if self.runner_mode == 'pexpect' or getattr(self, 'input_fd', False):
             new_args.extend(['--tty'])
 
         new_args.append('--interactive')
@@ -507,7 +507,7 @@ class BaseConfig(object):
 
             # runtime commands need artifacts mounted to output data
             self._update_volume_mount_paths(new_args,
-                                            "{}/artifacts".format(self.private_data_dir),
+                                            f"{self.private_data_dir}/artifacts",
                                             dst_mount_path="/runner/artifacts",
                                             labels=":Z")
 
@@ -518,16 +518,16 @@ class BaseConfig(object):
 
         # Mount the entire private_data_dir
         # custom show paths inside private_data_dir do not make sense
-        self._update_volume_mount_paths(new_args, "{}".format(self.private_data_dir), dst_mount_path="/runner", labels=":Z")
+        self._update_volume_mount_paths(new_args, self.private_data_dir, dst_mount_path="/runner", labels=":Z")
 
         if self.container_auth_data:
             # Pull in the necessary registry auth info, if there is a container cred
             self.registry_auth_path, registry_auth_conf_file = self._generate_container_auth_dir(self.container_auth_data)
             if 'podman' in self.process_isolation_executable:
-                new_args.extend(["--authfile={}".format(self.registry_auth_path)])
+                new_args.extend([f"--authfile={self.registry_auth_path}"])
             else:
                 docker_idx = new_args.index(self.process_isolation_executable)
-                new_args.insert(docker_idx + 1, "--config={}".format(self.registry_auth_path))
+                new_args.insert(docker_idx + 1, f"--config={self.registry_auth_path}")
             if registry_auth_conf_file is not None:
                 # Podman >= 3.1.0
                 self.env['CONTAINERS_REGISTRIES_CONF'] = registry_auth_conf_file
@@ -540,7 +540,7 @@ class BaseConfig(object):
                 self._ensure_path_safe_to_mount(volume_mounts[0])
                 labels = None
                 if len(volume_mounts) == 3:
-                    labels = ":%s" % volume_mounts[2]
+                    labels = f":{volume_mounts[2]}"
                 self._update_volume_mount_paths(new_args, volume_mounts[0], dst_mount_path=volume_mounts[1], labels=labels)
 
         # Reference the file with list of keys to pass into container
@@ -562,15 +562,15 @@ class BaseConfig(object):
 
         new_args.extend([self.container_image])
         new_args.extend(args)
-        logger.debug(f"container engine invocation: {' '.join(new_args)}")
+        logger.debug("container engine invocation: %s", ' '.join(new_args))
         return new_args
 
     def _generate_container_auth_dir(self, auth_data):
         host = auth_data.get('host')
-        token = "{}:{}".format(auth_data.get('username'), auth_data.get('password'))
+        token = f"{auth_data.get('username')}:{auth_data.get('password')}"
         encoded_container_auth_data = {'auths': {host: {'auth': b64encode(token.encode('UTF-8')).decode('UTF-8')}}}
         # Create a new temp file with container auth data
-        path = tempfile.mkdtemp(prefix='%s%s_' % (registry_auth_prefix, self.ident))
+        path = tempfile.mkdtemp(prefix=f'{registry_auth_prefix}{self.ident}_')
         register_for_cleanup(path)
 
         if self.process_isolation_executable == 'docker':
@@ -591,7 +591,7 @@ class BaseConfig(object):
 
                 lines = [
                     '[[registry]]',
-                    'location = "{}"'.format(host),
+                    f'location = "{host}"',
                     'insecure = true',
                 ]
 
@@ -608,14 +608,14 @@ class BaseConfig(object):
         necessary calls to ``ssh-agent``
         """
         if self.containerized:
-            artifact_dir = os.path.join("/runner/artifacts", "{}".format(self.ident))
+            artifact_dir = os.path.join("/runner/artifacts", self.ident)
             ssh_key_path = os.path.join(artifact_dir, "ssh_key_data")
 
         if ssh_key_path:
             ssh_add_command = args2cmdline('ssh-add', ssh_key_path)
             if silence_ssh_add:
                 ssh_add_command = ' '.join([ssh_add_command, '2>/dev/null'])
-            ssh_key_cleanup_command = 'rm -f {}'.format(ssh_key_path)
+            ssh_key_cleanup_command = f'rm -f {ssh_key_path}'
             # The trap ensures the fifo is cleaned up even if the call to ssh-add fails.
             # This prevents getting into certain scenarios where subsequent reads will
             # hang forever.
@@ -637,15 +637,15 @@ class BaseConfig(object):
 
                     if os.path.exists(os.environ[env]):
                         if os.environ[env].startswith(os.environ['HOME']):
-                            dest_path = '/home/runner/{}'.format(os.environ[env].lstrip(os.environ['HOME']))
+                            dest_path = f"/home/runner/{os.environ[env].lstrip(os.environ['HOME'])}"
                         elif os.environ[env].startswith('~'):
-                            dest_path = '/home/runner/{}'.format(os.environ[env].lstrip('~/'))
+                            dest_path = f"/home/runner/{os.environ[env].lstrip('~/')}"
                         else:
                             dest_path = os.environ[env]
 
                         self._update_volume_mount_paths(new_args, os.environ[env], dst_mount_path=dest_path)
 
-                    new_args.extend(["-e", "{}={}".format(env, dest_path)])
+                    new_args.extend(["-e", f"{env}={dest_path}"])
 
             for paths in cli_automount['PATHS']:
                 if os.path.exists(paths['src']):

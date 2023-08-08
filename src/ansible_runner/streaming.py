@@ -9,30 +9,34 @@ import tempfile
 import uuid
 import traceback
 
+from collections.abc import Mapping
+from functools import wraps
+from threading import Event, RLock, Thread
+
 import ansible_runner
 from ansible_runner.exceptions import ConfigurationError
 from ansible_runner.loader import ArtifactLoader
 import ansible_runner.plugins
 from ansible_runner.utils import register_for_cleanup
 from ansible_runner.utils.streaming import stream_dir, unstream_dir
-from collections.abc import Mapping
-from functools import wraps
-from threading import Event, RLock, Thread
 
 
 class UUIDEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, uuid.UUID):
-            return obj.hex
-        return json.JSONEncoder.default(self, obj)
+    def default(self, o):
+        if isinstance(o, uuid.UUID):
+            return o.hex
+        return json.JSONEncoder.default(self, o)
 
 
-class MockConfig(object):
+class MockConfig:
     def __init__(self, settings):
         self.settings = settings
+        self.command = None
+        self.cwd = None
+        self.env = None
 
 
-class Transmitter(object):
+class Transmitter:
     def __init__(self, _output=None, **kwargs):
         if _output is None:
             _output = sys.stdout.buffer
@@ -108,6 +112,9 @@ class Worker:
 
     def _keepalive_loop(self):
         """Main loop for keepalive injection thread; exits when keepalive interval is <= 0"""
+
+        # pylint: disable=R1732
+
         while self._keepalive_interval_sec > 0:
             # block until output has occurred or keepalive interval elapses
             if self._output_event.wait(timeout=self._keepalive_interval_sec):
@@ -133,16 +140,20 @@ class Worker:
                 # FIXME: this could be a lot smaller (even just `{}`) if a short-circuit discard was guaranteed in
                 #  Processor or if other layers were more defensive about missing event keys and/or unknown dictionary
                 #  values...
-                self.event_handler(dict(event='keepalive', counter=0, uuid=0))
+                self.event_handler({'event': 'keepalive', 'counter': 0, 'uuid': 0})
             finally:
                 # always release the output lock (
                 self._output_lock.release()
 
+    # NOTE: This should be decorated with staticmethod, but until our minimum supported
+    # Python is 3.10 (which allows static methods to be called as regular functions), we
+    # cannot decorate it as such, and must ignore typing errors at call locations.
     def _synchronize_output_reset_keepalive(wrapped_method):
         """
         Utility decorator to synchronize event writes and flushes to avoid keepalives splatting in the middle of
         mid-write events, and reset keepalive interval on write completion.
         """
+        # pylint: disable=E0213,E1102,W0212
         @wraps(wrapped_method)
         def wrapper(self, *args, **kwargs):
             with self._output_lock:
@@ -210,33 +221,35 @@ class Worker:
 
         return self.status, self.rc
 
-    @_synchronize_output_reset_keepalive
+    @_synchronize_output_reset_keepalive  # type: ignore
     def status_handler(self, status_data, runner_config):
+        # pylint: disable=W0613
         self.status = status_data['status']
         self._output.write(json.dumps(status_data).encode('utf-8'))
         self._output.write(b'\n')
         self._output.flush()
 
-    @_synchronize_output_reset_keepalive
+    @_synchronize_output_reset_keepalive  # type: ignore
     def event_handler(self, event_data):
         self._output.write(json.dumps(event_data).encode('utf-8'))
         self._output.write(b'\n')
         self._output.flush()
 
-    @_synchronize_output_reset_keepalive
+    @_synchronize_output_reset_keepalive  # type: ignore
     def artifacts_handler(self, artifact_dir):
         stream_dir(artifact_dir, self._output)
         self._output.flush()
 
-    @_synchronize_output_reset_keepalive
+    @_synchronize_output_reset_keepalive  # type: ignore
     def finished_callback(self, runner_obj):
+        # pylint: disable=W0613
         self._end_keepalive()  # ensure that we can't splat a keepalive event after the eof event
         self._output.write(json.dumps({'eof': True}).encode('utf-8'))
         self._output.write(b'\n')
         self._output.flush()
 
 
-class Processor(object):
+class Processor:
     def __init__(self, _input=None, status_handler=None, event_handler=None,
                  artifacts_handler=None, cancel_callback=None, finished_callback=None, **kwargs):
         if _input is None:
@@ -263,8 +276,8 @@ class Processor(object):
             self.artifact_dir = os.path.abspath(kwargs.get('artifact_dir'))
         else:
             project_artifacts = os.path.abspath(os.path.join(self.private_data_dir, 'artifacts'))
-            if kwargs.get('ident'):
-                self.artifact_dir = os.path.join(project_artifacts, "{}".format(kwargs.get('ident')))
+            if ident := kwargs.get('ident'):
+                self.artifact_dir = os.path.join(project_artifacts, str(ident))
             else:
                 self.artifact_dir = project_artifacts
 
@@ -293,15 +306,15 @@ class Processor(object):
     def event_callback(self, event_data):
         # FIXME: this needs to be more defensive to not blow up on "malformed" events or new values it doesn't recognize
         counter = event_data.get('counter')
-        uuid = event_data.get('uuid')
+        uuid_val = event_data.get('uuid')
 
-        if not counter or not uuid:
+        if not counter or not uuid_val:
             # FIXME: log a warning about a malformed event?
             return
 
         full_filename = os.path.join(self.artifact_dir,
                                      'job_events',
-                                     f'{counter}-{uuid}.json')
+                                     f'{counter}-{uuid_val}.json')
 
         if not self.quiet and 'stdout' in event_data:
             print(event_data['stdout'])

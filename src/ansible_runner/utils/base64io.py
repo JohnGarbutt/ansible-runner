@@ -26,9 +26,6 @@ try:  # Python 3.5.0 and 3.5.1 have incompatible typing modules
     from typing import (
         IO,
         AnyStr,
-        Iterable,
-        List,
-        Literal,
         Optional,
         Type,
     )
@@ -86,9 +83,9 @@ class Base64IO(io.IOBase):
         required_attrs = ("read", "write", "close", "closed", "flush")
         if not all(hasattr(wrapped, attr) for attr in required_attrs):
             raise TypeError(
-                "Base64IO wrapped object must have attributes: %s" % (repr(sorted(required_attrs)),)
+                f"Base64IO wrapped object must have attributes: {repr(sorted(required_attrs))}"
             )
-        super(Base64IO, self).__init__()
+        super().__init__()
         self.__wrapped = wrapped
         self.__read_buffer = b""
         self.__write_buffer = b""
@@ -99,10 +96,9 @@ class Base64IO(io.IOBase):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        # type: (Optional[Type[BaseException]], Optional[BaseException], Optional[TracebackType]) -> Literal[False]
+        # type: (Optional[Type[BaseException]], Optional[BaseException], Optional[TracebackType]) -> None
         """Properly close self on exit."""
         self.close()
-        return False
 
     def close(self):
         # type: () -> None
@@ -118,7 +114,7 @@ class Base64IO(io.IOBase):
         self.closed = True
 
     def _passthrough_interactive_check(self, method_name):
-        # type: (str, str) -> bool
+        # type: (str) -> bool
         """Attempt to call the specified method on the wrapped stream and return the result.
 
         If the method is not found on the wrapped stream, return False.
@@ -130,8 +126,7 @@ class Base64IO(io.IOBase):
             method = getattr(self.__wrapped, method_name)
         except AttributeError:
             return False
-        else:
-            return method()
+        return method()
 
     def writable(self):
         # type: () -> bool
@@ -195,15 +190,6 @@ class Base64IO(io.IOBase):
         trailing_byte_pos = -1 * (len(_bytes_to_write) % 3)
         self.__write_buffer = _bytes_to_write[trailing_byte_pos:]
         return self.__wrapped.write(base64.b64encode(_bytes_to_write[:trailing_byte_pos]))
-
-    def writelines(self, lines):
-        # type: (Iterable[bytes]) -> None
-        """Write a list of lines.
-
-        :param list lines: Lines to write
-        """
-        for line in lines:
-            self.write(line)
 
     def _read_additional_data_removing_whitespace(self, data, total_bytes_to_read):
         # type: (bytes, int) -> bytes
@@ -272,7 +258,7 @@ class Base64IO(io.IOBase):
         # Remove whitespace from read data and attempt to read more data to get the desired
         # number of bytes.
 
-        if any([char in data for char in string.whitespace.encode("utf-8")]):
+        if any(char in data for char in string.whitespace.encode("utf-8")):
             data = self._read_additional_data_removing_whitespace(data, _bytes_to_read)
 
         results = io.BytesIO()
@@ -287,58 +273,3 @@ class Base64IO(io.IOBase):
         self.__read_buffer = results.read()
 
         return output_data
-
-    def __iter__(self):
-        # Until https://github.com/python/typing/issues/11
-        # there's no good way to tell mypy about custom
-        # iterators that subclass io.IOBase.
-        """Let this class act as an iterator."""
-        return self
-
-    def readline(self, limit=-1):
-        # type: (int) -> bytes
-        """Read and return one line from the stream.
-
-        If limit is specified, at most limit bytes will be read.
-
-        .. note::
-
-            Because the source that this reads from may not contain any OEL characters, we
-            read "lines" in chunks of length ``io.DEFAULT_BUFFER_SIZE``.
-
-        :param int limit: Maximum number of bytes to read
-        :rtype: bytes
-        """
-        return self.read(limit if limit > 0 else io.DEFAULT_BUFFER_SIZE)
-
-    def readlines(self, hint=-1):
-        # type: (int) -> List[bytes]
-        """Read and return a list of lines from the stream.
-
-        ``hint`` can be specified to control the number of lines read: no more lines will
-        be read if the total size (in bytes/characters) of all lines so far exceeds hint.
-
-        :param int hint: Number of lines to read
-        :returns: Lines of data
-        :rtype: list of bytes
-        """
-        lines = []
-        total_len = 0
-        hint_defined = hint > 0
-
-        for line in self:  # type: ignore
-            lines.append(line)
-            total_len += len(line)
-
-            hint_satisfied = total_len > hint
-            if hint_defined and hint_satisfied:
-                break
-        return lines
-
-    def __next__(self):
-        # type: () -> bytes
-        """Python 3 iterator hook."""
-        line = self.readline()
-        if line:
-            return line
-        raise StopIteration()

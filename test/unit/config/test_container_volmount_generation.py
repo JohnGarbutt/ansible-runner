@@ -1,10 +1,12 @@
 """ Ensure the generation of container volume mounts is handled
 predictably and consistently """
 
-import os
-import pytest
+# pylint: disable=W0212,W0621
 
+import os
 from typing import NamedTuple
+
+import pytest
 
 from ansible_runner.config._base import BaseConfig
 from ansible_runner.exceptions import ConfigurationError
@@ -58,13 +60,13 @@ def resolve_path(path):
     return os.path.abspath(os.path.expanduser(os.path.expandvars(path)))
 
 
-def generate_volmount_args(src_str, dst_str, labels):
+def generate_volmount_args(src_str, dst_str, vol_labels):
     """Generate a podman style volmount string"""
     vol_mount_str = f"{src_str}:{dst_str}"
-    if labels:
-        if not labels.startswith(":"):
+    if vol_labels:
+        if not vol_labels.startswith(":"):
             vol_mount_str += ":"
-        vol_mount_str += labels
+        vol_mount_str += vol_labels
     return ["-v", vol_mount_str]
 
 
@@ -93,12 +95,12 @@ def test_check_not_safe_to_mount_file(not_safe, mocker):
 
 @pytest.mark.parametrize("path", dir_variations, ids=id_for_src)
 def test_duplicate_detection_dst(path, mocker):
+    """Ensure no duplicate volume mount entries are created"""
     mocker.patch("os.path.exists", return_value=True)
     mocker.patch("os.path.isdir", return_value=True)
-    """Ensure no duplicate volume mount entries are created"""
     base_config = BaseConfig()
 
-    def generate(args_list):
+    def generate():
         for entry in dir_variations:
             for label in labels:
                 base_config._update_volume_mount_paths(
@@ -109,9 +111,9 @@ def test_duplicate_detection_dst(path, mocker):
                 )
 
     first_pass = []
-    generate(first_pass)
+    generate()
     second_pass = first_pass[:]
-    generate(second_pass)
+    generate()
     assert first_pass == second_pass
 
 
@@ -120,10 +122,10 @@ def test_duplicate_detection_dst(path, mocker):
 def test_no_dst_all_dirs(path, labels, mocker):
     mocker.patch("os.path.exists", return_value=True)
     mocker.patch("os.path.isdir", return_value=True)
-    """Ensure dst == src when not provided"""
+    # Ensure dst == src when not provided
     src_str = os.path.join(resolve_path(path.path), "")
     dst_str = src_str
-    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, labels=labels)
+    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, vol_labels=labels)
 
     result = []
     BaseConfig()._update_volume_mount_paths(
@@ -145,10 +147,10 @@ def test_no_dst_all_dirs(path, labels, mocker):
 def test_src_dst_all_dirs(src, dst, labels, mocker):
     mocker.patch("os.path.exists", return_value=True)
     mocker.patch("os.path.isdir", return_value=True)
-    """Ensure src and dest end with trailing slash"""
+    # Ensure src and dest end with trailing slash
     src_str = os.path.join(resolve_path(src.path), "")
     dst_str = os.path.join(resolve_path(dst.path), "")
-    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, labels=labels)
+    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, vol_labels=labels)
 
     result = []
     BaseConfig()._update_volume_mount_paths(
@@ -170,7 +172,7 @@ def test_src_dst_all_files(path, labels, mocker):
     """Ensure file paths are transformed correctly into dir paths"""
     src_str = os.path.join(resolve_path(path.path), "")
     dst_str = src_str
-    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, labels=labels)
+    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, vol_labels=labels)
 
     result = []
     src_file = os.path.join(path.path, "", "file.txt")
@@ -199,13 +201,13 @@ def test_src_dst_all_files(path, labels, mocker):
 def test_src_dst_all_relative_dirs(src, dst, labels, relative, mocker):
     mocker.patch("os.path.exists", return_value=True)
     mocker.patch("os.path.isdir", return_value=True)
-    """Ensure src is resolved and dest mapped to workdir when relative"""
+    # Ensure src is resolved and dest mapped to workdir when relative
     relative_src = f"{relative}{src.path}"
     relative_dst = f"{relative}{dst.path}"
     workdir = "/workdir"
     src_str = os.path.join(resolve_path(relative_src), "")
     dst_str = os.path.join(resolve_path(os.path.join(workdir, relative_dst)), "")
-    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, labels=labels)
+    expected = generate_volmount_args(src_str=src_str, dst_str=dst_str, vol_labels=labels)
 
     result = []
     BaseConfig(container_workdir=workdir)._update_volume_mount_paths(

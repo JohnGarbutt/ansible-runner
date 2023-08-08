@@ -19,14 +19,10 @@ import codecs
 import atexit
 import signal
 
-from ansible_runner.exceptions import ConfigurationError
-
-try:
-    from collections.abc import Iterable, MutableMapping
-except ImportError:
-    from collections import Iterable, MutableMapping
+from collections.abc import Iterable, MutableMapping
 from io import StringIO
-from six import string_types, PY2, PY3, text_type, binary_type
+
+from ansible_runner.exceptions import ConfigurationError
 
 
 def cleanup_folder(folder):
@@ -61,7 +57,7 @@ def is_dir_owner(directory):
     return bool(current_user == callback_owner)
 
 
-class Bunch(object):
+class Bunch:
 
     '''
     Collect a bunch of variables together in an object.
@@ -88,7 +84,7 @@ def isplaybook(obj):
     Returns:
         boolean: True if the object is a list and False if it is not
     '''
-    return isinstance(obj, Iterable) and (not isinstance(obj, string_types) and not isinstance(obj, MutableMapping))
+    return isinstance(obj, Iterable) and (not isinstance(obj, str) and not isinstance(obj, MutableMapping))
 
 
 def isinventory(obj):
@@ -101,7 +97,7 @@ def isinventory(obj):
     Returns:
         boolean: True if the object is an inventory dict and False if it is not
     '''
-    return isinstance(obj, MutableMapping) or isinstance(obj, string_types)
+    return isinstance(obj, (MutableMapping, str))
 
 
 def check_isolation_executable_installed(isolation_executable):
@@ -110,14 +106,14 @@ def check_isolation_executable_installed(isolation_executable):
     '''
     cmd = [isolation_executable, '--version']
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-        proc.communicate()
-        return bool(proc.returncode == 0)
-    except (OSError, ValueError) as e:
-        if isinstance(e, ValueError) or getattr(e, 'errno', 1) != 2:  # ENOENT, no such file or directory
-            raise RuntimeError(f'{isolation_executable} unavailable for unexpected reason.')
-        return False
+        with subprocess.Popen(cmd,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE) as proc:
+            proc.communicate()
+            return bool(proc.returncode == 0)
+    except FileNotFoundError:
+        pass
+    return False
 
 
 def dump_artifact(obj, path, filename=None):
@@ -145,7 +141,7 @@ def dump_artifact(obj, path, filename=None):
         p_sha1.update(obj.encode(encoding='UTF-8'))
 
     if filename is None:
-        fd, fn = tempfile.mkstemp(dir=path)
+        _, fn = tempfile.mkstemp(dir=path)
     else:
         fn = os.path.join(path, filename)
 
@@ -176,8 +172,10 @@ def cleanup_artifact_dir(path, num_keep=0):
     # 0 disables artifact dir cleanup/rotation
     if num_keep < 1:
         return
-    all_paths = sorted([os.path.join(path, p) for p in os.listdir(path)],
-                       key=lambda x: os.path.getmtime(x))
+    all_paths = sorted(
+        [os.path.join(path, p) for p in os.listdir(path)],
+        key=os.path.getmtime
+    )
     total_remove = len(all_paths) - num_keep
     for f in range(total_remove):
         shutil.rmtree(all_paths[f])
@@ -214,7 +212,7 @@ def dump_artifacts(kwargs):
         if not roles_path:
             roles_path = os.path.join(private_data_dir, 'roles')
         else:
-            roles_path += ':{}'.format(os.path.join(private_data_dir, 'roles'))
+            roles_path += f":{os.path.join(private_data_dir, 'roles')}"
 
         kwargs['envvars']['ANSIBLE_ROLES_PATH'] = roles_path
 
@@ -233,7 +231,7 @@ def dump_artifacts(kwargs):
         path = os.path.join(private_data_dir, 'inventory')
         if isinstance(obj, MutableMapping):
             kwargs['inventory'] = dump_artifact(json.dumps(obj), path, 'hosts.json')
-        elif isinstance(obj, string_types):
+        elif isinstance(obj, str):
             if not os.path.exists(os.path.join(path, obj)):
                 kwargs['inventory'] = dump_artifact(obj, path, 'hosts')
             elif os.path.isabs(obj):
@@ -279,7 +277,7 @@ def collect_new_events(event_path, old_events):
         yield event, old_events
 
 
-class OutputEventFilter(object):
+class OutputEventFilter:
     '''
     File-like object that looks for encoded job events in stdout data.
     '''
@@ -334,9 +332,7 @@ class OutputEventFilter(object):
 
             if stdout_actual and stdout_actual != "{}":
                 if not self.suppress_ansible_output:
-                    sys.stdout.write(
-                        stdout_actual.encode('utf-8') if PY2 else stdout_actual
-                    )
+                    sys.stdout.write(stdout_actual)
                     sys.stdout.write("\n")
                     sys.stdout.flush()
                 if self._handle:
@@ -357,9 +353,7 @@ class OutputEventFilter(object):
                 for line in lines:
                     self._emit_event(line)
                     if not self.suppress_ansible_output:
-                        sys.stdout.write(
-                            line.encode('utf-8') if PY2 else line
-                        )
+                        sys.stdout.write(line)
                     if self._handle:
                         self._handle.write(line)
                         self._handle.flush()
@@ -373,7 +367,7 @@ class OutputEventFilter(object):
         if value:
             self._emit_event(value)
             self._buffer = StringIO()
-        self._event_callback(dict(event='EOF'))
+        self._event_callback({'event': 'EOF'})
         if self._handle:
             self._handle.close()
 
@@ -383,10 +377,10 @@ class OutputEventFilter(object):
             event_data = self._current_event_data
             stdout_chunks = [buffered_stdout]
         elif buffered_stdout:
-            event_data = dict(event='verbose')
+            event_data = dict({'event': 'verbose'})
             stdout_chunks = buffered_stdout.splitlines(True)
         else:
-            event_data = dict()
+            event_data = {}
             stdout_chunks = []
 
         for stdout_chunk in stdout_chunks:
@@ -415,7 +409,7 @@ def open_fifo_write(path, data):
     '''
     os.mkfifo(path, stat.S_IRUSR | stat.S_IWUSR)
     # If the data is a string instead of bytes, convert it before writing the fifo
-    if isinstance(data, string_types):
+    if isinstance(data, str):
         data = data.encode()
 
     def worker(path, data):
@@ -432,25 +426,14 @@ def args2cmdline(*args):
 
 def ensure_str(s, encoding='utf-8', errors='strict'):
     """
-    Copied from six==1.12
-
     Coerce *s* to ``str``.
-
-    For Python 2:
-
-      - ``unicode`` -> encoded to ``str``
-      - ``str`` -> ``str``
-
-    For Python 3:
 
       - ``str`` -> ``str``
       - ``bytes`` -> decoded to ``str``
     """
-    if not isinstance(s, (text_type, binary_type)):
-        raise TypeError("not expecting type '%s'" % type(s))
-    if PY2 and isinstance(s, text_type):
-        s = s.encode(encoding, errors)
-    elif PY3 and isinstance(s, binary_type):
+    if not isinstance(s, (str, bytes)):
+        raise TypeError(f"not expecting type '{type(s)}'")
+    if isinstance(s, bytes):
         s = s.decode(encoding, errors)
     return s
 
@@ -464,7 +447,7 @@ def sanitize_container_name(original_name):
     :param str original_name: Container name containing potentially invalid characters
     """
 
-    return re.sub('[^a-zA-Z0-9_-]', '_', text_type(original_name))
+    return re.sub('[^a-zA-Z0-9_-]', '_', str(original_name))
 
 
 def cli_mounts():
@@ -473,11 +456,11 @@ def cli_mounts():
             'ENVS': ['SSH_AUTH_SOCK'],
             'PATHS': [
                 {
-                    'src': '{}/.ssh/'.format(os.environ['HOME']),
+                    'src': f"{os.environ['HOME']}/.ssh/",
                     'dest': '/home/runner/.ssh/'
                 },
                 {
-                    'src': '{}/.ssh/'.format(os.environ['HOME']),
+                    'src': f"{os.environ['HOME']}/.ssh/",
                     'dest': '/root/.ssh/'
                 },
                 {
@@ -510,6 +493,7 @@ def get_executable_path(name):
 
 def signal_handler():
     # Only the main thread is allowed to set a new signal handler
+    # pylint: disable=W4902
     if threading.current_thread() is not threading.main_thread():
         return None
 
@@ -517,6 +501,7 @@ def signal_handler():
 
     # closure to set signal event
     def _handler(number, frame):
+        # pylint: disable=W0613
         signal_event.set()
 
     signal.signal(signal.SIGTERM, _handler)

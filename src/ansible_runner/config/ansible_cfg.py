@@ -16,6 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+# pylint: disable=W0201
+
 import logging
 
 from ansible_runner.config._base import BaseConfig, BaseExecutionMode
@@ -47,7 +50,7 @@ class AnsibleCfgConfig(BaseConfig):
         # runner params
         self.runner_mode = runner_mode if runner_mode else 'subprocess'
         if self.runner_mode not in ['pexpect', 'subprocess']:
-            raise ConfigurationError("Invalid runner mode {0}, valid value is either 'pexpect' or 'subprocess'".format(self.runner_mode))
+            raise ConfigurationError(f"Invalid runner mode {self.runner_mode}, valid value is either 'pexpect' or 'subprocess'")
 
         if kwargs.get("process_isolation"):
             self._ansible_config_exec_path = "ansible-config"
@@ -55,18 +58,18 @@ class AnsibleCfgConfig(BaseConfig):
             self._ansible_config_exec_path = get_executable_path("ansible-config")
 
         self.execution_mode = BaseExecutionMode.ANSIBLE_COMMANDS
-        super(AnsibleCfgConfig, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     _supported_actions = ('list', 'dump', 'view')
 
     def prepare_ansible_config_command(self, action, config_file=None, only_changed=None):
 
         if action not in AnsibleCfgConfig._supported_actions:
-            raise ConfigurationError("Invalid action {0}, valid value is one of either {1}".format(action, ", ".join(AnsibleCfgConfig._supported_actions)))
+            raise ConfigurationError(f'Invalid action {action}, valid value is one of either {", ".join(AnsibleCfgConfig._supported_actions)}')
 
         if action != 'dump' and only_changed:
             raise ConfigurationError("only_changed is applicable for action 'dump'")
-        self._prepare_env(runner_mode=self.runner_mode)
+        self.prepare_env(runner_mode=self.runner_mode)
         self.cmdline_args = []
 
         self.cmdline_args.append(action)
@@ -77,4 +80,4 @@ class AnsibleCfgConfig(BaseConfig):
             self.cmdline_args.append('--only-changed')
 
         self.command = [self._ansible_config_exec_path] + self.cmdline_args
-        self._handle_command_wrap(self.execution_mode, self.cmdline_args)
+        self.handle_command_wrap(self.execution_mode, self.cmdline_args)

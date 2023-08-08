@@ -53,9 +53,6 @@ jobs:
       fail-fast: false
       matrix:
         py_version:
-          - name: '3.8'
-            tox_env: integration-py38
-
           - name: '3.9'
             tox_env: integration-py39
 
@@ -103,6 +100,8 @@ jobs:
         with:
           files: test/coverage/reports/coverage.xml
           flags: ${{ matrix.py_version.tox_env }}
+          fail_ci_if_error: true
+          verbose: true
 
 
   unit:
@@ -116,9 +115,6 @@ jobs:
       fail-fast: false
       matrix:
         py_version:
-          - name: '3.8'
-            tox_env: unit-py38
-
           - name: '3.9'
             tox_env: unit-py39
 
@@ -153,3 +149,5 @@ jobs:
         with:
           files: test/coverage/reports/coverage.xml
           flags: ${{ matrix.py_version.tox_env }}
+          fail_ci_if_error: true
+          verbose: true
